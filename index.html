@@ -1,4 +1,100 @@
+<div class="app">
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">СЧЁТЧИК ОЧКОВ</div>
+      <h1>Тысяча <span>♠</span></h1>
+    </div>
+    <button id="newGameBtn" class="ghost small">Новая игра</button>
+  </header>
 
+  <section id="setup" class="panel">
+    <h2>Новая партия</h2>
+    <label for="playerCount">Количество игроков</label>
+    <select id="playerCount">
+      <option value="3">3 игрока</option>
+      <option value="4">4 игрока</option>
+    </select>
+    <div id="nameFields" class="name-fields"></div>
+    <button id="startBtn" class="primary full">Начать игру</button>
+  </section>
+
+  <section id="game" hidden>
+    <div class="game-heading">
+      <div>
+        <div class="eyebrow">ТЕКУЩАЯ ПАРТИЯ</div>
+        <h2 id="roundTitle">Раунд 1</h2>
+      </div>
+      <div class="round-count" id="roundCount">0 сыграно</div>
+    </div>
+
+    <div id="players" class="players"></div>
+
+    <button id="enterBtn" class="primary full">
+      + Записать очки раунда
+    </button>
+
+    <section class="history-section">
+      <div class="section-heading">
+        <h2>История</h2>
+        <button id="undoBtn" class="ghost small" disabled>
+          ↶ Отменить раунд
+        </button>
+      </div>
+      <div id="history"></div>
+    </section>
+  </section>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <div class="eyebrow" id="modalSubtitle">РАУНД 1</div>
+        <h2 id="modalTitle">Имя игрока</h2>
+      </div>
+      <button id="closeModalBtn" class="icon-btn" aria-label="Закрыть">×</button>
+    </div>
+
+    <div id="turnProgress" class="turn-progress"></div>
+
+    <div class="score-display">
+      <span id="rawScore">0</span>
+      <div id="roundedHint">Будет записано: 0</div>
+    </div>
+
+    <div id="keypad" class="keypad">
+      <button data-key="1">1</button>
+      <button data-key="2">2</button>
+      <button data-key="3">3</button>
+      <button data-key="4">4</button>
+      <button data-key="5">5</button>
+      <button data-key="6">6</button>
+      <button data-key="7">7</button>
+      <button data-key="8">8</button>
+      <button data-key="9">9</button>
+      <button data-key="minus">−</button>
+      <button data-key="0">0</button>
+      <button data-key="backspace">⌫</button>
+    </div>
+
+    <div class="special-actions">
+      <div class="special-label">Роспись игрока</div>
+      <div id="rospisButtons" class="rospis-buttons"></div>
+      <button id="peachBtn" class="peach-btn">
+        💩 <span>Не набрал очков · 0</span>
+      </button>
+    </div>
+
+    <div id="modalError" class="error" aria-live="polite"></div>
+
+    <button id="confirmBtn" class="primary full">
+      Подтвердить очки →
+    </button>
+    <button id="cancelBtn" class="text-btn full">
+      Отменить ввод
+    </button>
+  </div>
+</div>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
