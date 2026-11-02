@@ -5,6 +5,7 @@ let game = null;
 let draft = [];
 let currentPlayer = 0;
 let rawInput = "";
+let editingLastRound = false;
 
 function roundScore(value) {
   if (value === 0) return 0;
@@ -27,7 +28,11 @@ function getTotal(playerIndex) {
 }
 
 function getRUsed(playerIndex) {
-  return game.rounds.reduce((sum, round) =>
+  const roundsToCount = editingLastRound
+    ? game.rounds.slice(0, -1)
+    : game.rounds;
+
+  return roundsToCount.reduce((sum, round) =>
     sum + (round.entries[playerIndex].type === "R" ? 1 : 0), 0);
 }
 
@@ -152,14 +157,20 @@ function renderHistory() {
         const index = game.rounds.length - 1 - roundIndex;
         const actualRound = game.rounds[index];
 
+        const dealerIndex = Number.isInteger(actualRound.dealerIndex)
+          ? actualRound.dealerIndex
+          : (game.players.length - (index % game.players.length)) % game.players.length;
+
         return `
           <article class="history-card">
             <div class="history-title">Раунд ${index + 1}</div>
             ${actualRound.entries.map((entry, i) => `
               <div class="history-row">
-                <span>${escapeText(game.players[i])}
+                <span class="history-player">
+                  ${i === dealerIndex ? '<span class="history-dealer-dot" title="Игрок на прикупе"></span>' : ''}
+                  ${escapeText(game.players[i])}
                   ${entry.type === "R" ? " · R" + entry.rIndex :
-                    entry.type === "peach" ? " · 💩" : ""}
+                    entry.type === "peach" ? " · 🍑" : ""}
                 </span>
                 <span class="${
                   entry.score < 0 ? "negative-text" :
@@ -175,19 +186,35 @@ function renderHistory() {
 }
 
 function openRound() {
+  editingLastRound = false;
+  draft = [];
+  currentPlayer = 0;
+  openPlayerModal();
+}
+
+function editLastRound() {
+  if (!game || !game.rounds.length) return;
+
+  editingLastRound = true;
   draft = [];
   currentPlayer = 0;
   openPlayerModal();
 }
 
 function openPlayerModal() {
-  rawInput = "";
+  const oldEntry = editingLastRound
+    ? game.rounds[game.rounds.length - 1].entries[currentPlayer]
+    : null;
+  rawInput = oldEntry && oldEntry.type === "number"
+    ? String(oldEntry.score)
+    : "";
   $("modal").hidden = false;
   $("modalError").textContent = "";
 
   const name = game.players[currentPlayer];
+  const roundNumber = editingLastRound ? game.rounds.length : game.rounds.length + 1;
   $("modalSubtitle").textContent =
-    `РАУНД ${game.rounds.length + 1} · ИГРОК ${currentPlayer + 1} ИЗ ${game.players.length}`;
+    `${editingLastRound ? "ИЗМЕНЕНИЕ · " : ""}РАУНД ${roundNumber} · ИГРОК ${currentPlayer + 1} ИЗ ${game.players.length}`;
   $("modalTitle").textContent = name;
 
   $("turnProgress").innerHTML = game.players.map((_, i) =>
@@ -209,16 +236,9 @@ function openPlayerModal() {
 function renderRButtons() {
   const playerIndex = currentPlayer;
   const usedEarlier = getRUsed(playerIndex);
-  const usedThisRound = draft.some(entry =>
-    entry.playerIndex === playerIndex && entry.type === "R"
-  );
 
   $("rospisButtons").innerHTML = [1, 2, 3].map(n => {
-    const used = n <= usedEarlier ||
-      (usedThisRound && draft.some(entry =>
-        entry.playerIndex === playerIndex &&
-        entry.type === "R" && entry.rIndex === n
-      ));
+    const used = n <= usedEarlier;
 
     return `
       <button class="rospis-btn ${used ? "used" : ""}"
@@ -333,7 +353,17 @@ function nextPlayer() {
     return;
   }
 
-  game.rounds.push({ entries });
+  if (editingLastRound) {
+    const lastRound = game.rounds[game.rounds.length - 1];
+    lastRound.entries = entries;
+    // dealerIndex сохраняем: редактирование очков не меняет прикуп.
+    editingLastRound = false;
+  } else {
+    const count = game.players.length;
+    const dealerIndex = (count - (game.rounds.length % count)) % count;
+    game.rounds.push({ entries, dealerIndex });
+  }
+
   saveGame();
   renderGame();
 }
@@ -345,6 +375,7 @@ function cancelModal() {
   }
 
   draft = [];
+  editingLastRound = false;
   $("modal").hidden = true;
 }
 
@@ -354,21 +385,14 @@ $("confirmBtn").addEventListener("click", confirmScore);
 $("closeModalBtn").addEventListener("click", cancelModal);
 $("cancelBtn").addEventListener("click", cancelModal);
 
-$("undoBtn").addEventListener("click", () => {
-  if (!game.rounds.length) return;
-
-  if (!confirm("Удалить последний раунд у всех игроков?")) return;
-
-  game.rounds.pop();
-  saveGame();
-  renderGame();
-});
+$("undoBtn").addEventListener("click", editLastRound);
 
 $("newGameBtn").addEventListener("click", () => {
   if (!confirm("Начать новую партию? Текущая партия будет заменена.")) return;
 
   game = null;
   draft = [];
+  editingLastRound = false;
 
   try {
     localStorage.removeItem(STORAGE_KEY);
