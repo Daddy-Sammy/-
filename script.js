@@ -133,7 +133,7 @@ function renderGame() {
           ${total > 0 ? "+" : ""}${total}
         </div>
         <div class="player-meta">
-          <span>${isDealer ? "🔴 На прикупе" : "в игре"}</span>
+          <span>${isDealer ? "На прикупе" : "в игре"}</span>
           <span><strong>R ${3 - used}/3</strong></span>
         </div>
       </article>
