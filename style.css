@@ -151,6 +151,20 @@ select, .name-input {
 .history-list { display: grid; gap: 8px; }
 .history-card { padding: 14px; }
 .history-title { font-size: 13px; font-weight: 750; margin-bottom: 10px; }
+.history-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.history-dealer-dot {
+  display: inline-block;
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
 .history-row {
   display: flex;
   justify-content: space-between;
