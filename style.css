@@ -107,6 +107,8 @@ select, .name-input {
   overflow: hidden;
 }
 .player-card.active-player { border-color: #f19ba1; }
+.player-card.barrel-player { border-color: #d5a24b; background: #fffdf7; }
+.player-card.winner-player { border-color: #17845c; background: #f5fff9; }
 .player-top {
   display: flex;
   justify-content: space-between;
@@ -174,6 +176,7 @@ select, .name-input {
   font-size: 13px;
 }
 .history-row span:last-child { font-weight: 750; }
+.history-special-mark { color: #9a6a1c; font-size: 10px; font-weight: 700; margin-left: 3px; }
 .positive { color: var(--green); }
 .negative-text { color: var(--red); }
 .empty-history {
@@ -245,7 +248,7 @@ select, .name-input {
   font-size: 21px;
   font-weight: 700;
 }
-.keypad button:active, .rospis-btn:active, .peach-btn:active { background: #e8edff; }
+.keypad button:active, .rospis-btn:active, .peach-btn:active, .three-nines-btn:active { background: #e8edff; }
 .keypad button[data-key="minus"] { color: var(--red); }
 
 .special-actions { margin: 15px 0; }
@@ -255,8 +258,9 @@ select, .name-input {
   font-weight: 750;
   margin-bottom: 8px;
 }
-.rospis-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rospis-buttons { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .rospis-btn {
+  width: 100%;
   min-height: 46px;
   border: 1px solid #d9dfff;
   background: #f3f5ff;
@@ -269,6 +273,21 @@ select, .name-input {
   border-color: #e3e5ea;
   color: #9aa1af;
   text-decoration: line-through;
+}
+.three-nines-btn {
+  width: 100%;
+  margin-top: 8px;
+  min-height: 46px;
+  border: 1px solid #f0c7a2;
+  border-radius: 12px;
+  background: #fff8f1;
+  color: #9a4f16;
+  font-weight: 800;
+}
+.three-nines-btn.selected {
+  background: #9a4f16;
+  border-color: #9a4f16;
+  color: white;
 }
 .peach-btn {
   width: 100%;
