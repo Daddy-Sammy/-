@@ -31,8 +31,7 @@ function getEffectiveEntryScore(entry) {
   return 0;
 }
 
-// Полностью пересчитываем состояние из истории. Благодаря этому изменение
-// последнего раунда автоматически пересчитывает 555, бочки и победителя.
+// Полностью пересчитываем состояние из истории.
 function calculateGameState(rounds = game.rounds) {
   const count = game.players.length;
   const states = game.players.map(() => ({
@@ -44,76 +43,159 @@ function calculateGameState(rounds = game.rounds) {
   }));
   const roundMarks = rounds.map(() => Array(count).fill(""));
 
+  const fallFromBarrel = (state, roundMarksForPlayers, playerIndex, reason = "сход") => {
+    const attempt = state.barrel?.attempt ?? state.barrelFailures + 1;
+    state.barrelFailures++;
+    state.barrel = null;
+
+    if (state.barrelFailures >= 3) {
+      state.total = 0;
+      roundMarksForPlayers[playerIndex] = `🛢️ ${attempt} · ${reason} · 0`;
+    } else {
+      state.total = 760;
+      roundMarksForPlayers[playerIndex] = `🛢️ ${attempt} · ${reason} · 760`;
+    }
+  };
+
   rounds.forEach((round, roundIndex) => {
     const dealerIndex = getDealerIndex(round, roundIndex);
+    const marks = roundMarks[roundIndex];
+    const scores = round.entries.map(getEffectiveEntryScore);
+    const isDealer = states.map((_, i) => i === dealerIndex);
+    const entrants = [];
+
+    // Сначала определяем всех новых участников бочки за этот раунд.
+    for (let i = 0; i < count; i++) {
+      const state = states[i];
+      const entry = round.entries[i];
+
+      if (entry.type === "R") state.rospisUsed++;
+      if (state.winner || state.barrel || isDealer[i]) continue;
+
+      const projected = state.total + scores[i];
+      const after555 = projected === 555 ? 0 : projected;
+
+      if (state.total >= 880 || after555 >= 880) {
+        entrants.push({
+          index: i,
+          alreadyAtThreshold: state.total >= 880
+        });
+      }
+    }
+
+    // Вход нового игрока сбрасывает с бочки тех, кто находился там до раунда.
+    const forcedFalls = new Set();
+
+    if (entrants.length) {
+      for (let i = 0; i < count; i++) {
+        const state = states[i];
+
+        if (state.barrel && !state.winner) {
+          fallFromBarrel(state, marks, i, "сход · новый игрок на бочке");
+          forcedFalls.add(i);
+        }
+      }
+    }
+
+    const entrantIndexes = new Set(entrants.map(x => x.index));
 
     for (let i = 0; i < count; i++) {
       const state = states[i];
       const entry = round.entries[i];
-      const score = getEffectiveEntryScore(entry);
-      const isDealer = i === dealerIndex;
+      const score = scores[i];
+      const dealer = isDealer[i];
 
-      if (entry.type === "R") state.rospisUsed++;
       if (state.winner) {
-        roundMarks[roundIndex][i] = "🏆 Победа";
+        marks[i] = "🏆 Победа";
         continue;
       }
 
-      // Игрок уже на бочке: раунд прикупа пропускается и не входит в три попытки.
+      if (forcedFalls.has(i)) continue;
+
+      if (entrantIndexes.has(i)) {
+        const attempt = state.barrelFailures + 1;
+
+        state.total = 880;
+        state.barrel = { attempt, rounds: 0 };
+        marks[i] = `🛢️ ${attempt} · вход`;
+
+        const entrant = entrants.find(x => x.index === i);
+
+        // Если игрок уже имел 880 до этого раунда,
+        // текущий раунд становится первой попыткой.
+        if (entrant?.alreadyAtThreshold) {
+          if (entry.threeNines || score === 0) {
+            fallFromBarrel(
+              state,
+              marks,
+              i,
+              entry.threeNines ? "3 девятки" : "0 очков"
+            );
+          } else if (score >= 120) {
+            state.total = 1000;
+            state.winner = true;
+            state.barrel = null;
+            marks[i] = "🏆 Победа · 1000";
+          } else {
+            state.barrel.rounds = 1;
+            marks[i] = `🛢️ ${attempt} · 1/3`;
+          }
+        }
+
+        continue;
+      }
+
       if (state.barrel) {
-        if (isDealer) {
-          roundMarks[roundIndex][i] = `🛢️ ${state.barrel.attempt} · пропуск`;
+        if (dealer) {
+          marks[i] = `🛢️ ${state.barrel.attempt} · пропуск`;
           continue;
         }
 
-        state.barrel.rounds++;
-        state.barrel.progress += score;
-        roundMarks[roundIndex][i] = `🛢️ ${state.barrel.attempt} · ${state.barrel.rounds}/3`;
+        // Ноль или три девятки — немедленный сход.
+        if (entry.threeNines || score === 0) {
+          fallFromBarrel(
+            state,
+            marks,
+            i,
+            entry.threeNines ? "3 девятки" : "0 очков"
+          );
+        }
 
-        if (state.barrel.progress >= 120) {
+        // Для победы нужно набрать 120+ за один раунд.
+        else if (score >= 120) {
           state.total = 1000;
           state.winner = true;
           state.barrel = null;
-          roundMarks[roundIndex][i] = "🏆 Победа · 1000";
-        } else if (state.barrel.rounds >= 3) {
-          state.barrelFailures++;
-          state.barrel = null;
-          if (state.barrelFailures >= 3) {
-            state.total = 0;
-            roundMarks[roundIndex][i] = "🛢️ Сход · 0";
+          marks[i] = "🏆 Победа · 1000";
+        }
+
+        // Очки за неудачную попытку не записываются.
+        else {
+          state.barrel.rounds++;
+
+          if (state.barrel.rounds >= 3) {
+            fallFromBarrel(state, marks, i, "3 бочки");
           } else {
-            state.total = 760;
-            roundMarks[roundIndex][i] = "🛢️ Сход · −120";
+            marks[i] = `🛢️ ${state.barrel.attempt} · ${state.barrel.rounds}/3`;
           }
         }
+
         continue;
       }
 
-      // Если игрок уже имел 880+ после раунда прикупа, он входит на бочку
-      // в начале первого следующего раунда, не являющегося прикупом.
-      if (!isDealer && state.total >= 880) {
+      // Обычный игрок.
+      state.total += score;
+
+      if (state.total === 555) state.total = 0;
+
+      if (!dealer && state.total >= 880) {
         state.total = 880;
         state.barrel = {
           attempt: state.barrelFailures + 1,
-          rounds: 1,
-          progress: score
+          rounds: 0
         };
-        roundMarks[roundIndex][i] = `🛢️ ${state.barrel.attempt} · 1/3`;
-      } else {
-        state.total += score;
 
-        // Сброс только при точном совпадении итоговой суммы после раунда.
-        if (state.total === 555) state.total = 0;
-
-        if (!isDealer && state.total >= 880) {
-          state.total = 880;
-          state.barrel = {
-            attempt: state.barrelFailures + 1,
-            rounds: 0,
-            progress: 0
-          };
-          roundMarks[roundIndex][i] = `🛢️ ${state.barrel.attempt} · вход`;
-        }
+        marks[i] = `🛢️ ${state.barrel.attempt} · вход`;
       }
     }
   });
@@ -122,7 +204,10 @@ function calculateGameState(rounds = game.rounds) {
 }
 
 function getRUsed(playerIndex) {
-  const roundsToCount = editingLastRound ? game.rounds.slice(0, -1) : game.rounds;
+  const roundsToCount = editingLastRound
+    ? game.rounds.slice(0, -1)
+    : game.rounds;
+
   return roundsToCount.reduce((sum, round) =>
     sum + (round.entries[playerIndex].type === "R" ? 1 : 0), 0);
 }
@@ -144,12 +229,18 @@ function showSetup() {
 
 function renderNameFields() {
   const count = Number($("playerCount").value);
-  const oldNames = [...document.querySelectorAll(".name-input")].map(input => input.value);
+
+  const oldNames = [...document.querySelectorAll(".name-input")]
+    .map(input => input.value);
+
   $("nameFields").innerHTML = Array.from({ length: count }, (_, i) => `
     <div class="name-field">
       <label for="playerName${i}">Игрок ${i + 1}</label>
-      <input class="name-input" id="playerName${i}" maxlength="15" minlength="1"
-        autocomplete="off" placeholder="Имя игрока ${i + 1}" value="${escapeText(oldNames[i] || "")}">
+      <input class="name-input" id="playerName${i}"
+        maxlength="15" minlength="1"
+        autocomplete="off"
+        placeholder="Имя игрока ${i + 1}"
+        value="${escapeText(oldNames[i] || "")}">
     </div>
   `).join("");
 }
@@ -157,15 +248,22 @@ function renderNameFields() {
 $("playerCount").addEventListener("change", renderNameFields);
 
 function startGame() {
-  const names = [...document.querySelectorAll(".name-input")].map(input => input.value.trim());
+  const names = [...document.querySelectorAll(".name-input")]
+    .map(input => input.value.trim());
+
   if (names.some(name => name.length < 1 || name.length > 15)) {
     alert("Имя каждого игрока должно содержать от 1 до 15 символов.");
     return;
   }
-  if (names.some((name, i) => names.slice(0, i).some(previous =>
-    previous.toLocaleLowerCase("ru") === name.toLocaleLowerCase("ru")))) {
+
+  if (names.some((name, i) =>
+    names.slice(0, i).some(previous =>
+      previous.toLocaleLowerCase("ru") === name.toLocaleLowerCase("ru")
+    )
+  )) {
     if (!confirm("Есть игроки с одинаковыми именами. Продолжить?")) return;
   }
+
   game = { players: names, rounds: [] };
   saveGame();
   renderGame();
@@ -173,40 +271,69 @@ function startGame() {
 
 function renderGame() {
   if (!game) return;
+
   $("setup").hidden = true;
   $("game").hidden = false;
   $("modal").hidden = true;
 
   const count = game.players.length;
   const roundIndex = game.rounds.length;
+
   const nextDealer = roundIndex === 0
     ? 0
-    : (getDealerIndex(game.rounds[roundIndex - 1], roundIndex - 1) + 1) % count;
+    : (getDealerIndex(
+        game.rounds[roundIndex - 1],
+        roundIndex - 1
+      ) + 1) % count;
+
   const { states } = calculateGameState();
   const winner = states.find(state => state.winner);
 
-  $("roundTitle").textContent = winner ? "Игра завершена" : `Раунд ${roundIndex + 1}`;
-  $("roundCount").textContent = `${roundIndex} ${roundIndex === 1 ? "сыгран" : "сыграно"}`;
+  $("roundTitle").textContent = winner
+    ? "Игра завершена"
+    : `Раунд ${roundIndex + 1}`;
+
+  $("roundCount").textContent =
+    `${roundIndex} ${roundIndex === 1 ? "сыгран" : "сыграно"}`;
+
   $("enterBtn").disabled = Boolean(winner);
-  $("enterBtn").textContent = winner ? "🏆 Партия завершена" : "+ Записать очки раунда";
+  $("enterBtn").textContent = winner
+    ? "🏆 Партия завершена"
+    : "+ Записать очки раунда";
 
   $("players").innerHTML = game.players.map((name, i) => {
     const state = states[i];
     const isDealer = i === nextDealer;
+
     const barrelText = state.barrel
       ? `${"🛢️".repeat(Math.min(state.barrel.attempt, 3))} · ${state.barrel.rounds}/3`
       : state.barrelFailures
         ? `${"🛢️".repeat(Math.min(state.barrelFailures, 3))} · сходов: ${state.barrelFailures}`
         : "в игре";
-    const status = state.winner ? "🏆 Победитель" : isDealer ? "🔴 На прикупе" : barrelText;
+
+    const status = state.winner
+      ? "🏆 Победитель"
+      : isDealer
+        ? "🔴 На прикупе"
+        : barrelText;
 
     return `
-      <article class="player-card ${isDealer ? "active-player" : ""} ${state.winner ? "winner-player" : ""} ${state.barrel ? "barrel-player" : ""}">
+      <article class="player-card
+        ${isDealer ? "active-player" : ""}
+        ${state.winner ? "winner-player" : ""}
+        ${state.barrel ? "barrel-player" : ""}">
+
         <div class="player-top">
           <div class="player-name">${escapeText(name)}</div>
-          ${isDealer ? '<span class="turn-dot" title="Прикуп"></span>' : ""}
+          ${isDealer
+            ? '<span class="turn-dot" title="Прикуп"></span>'
+            : ""}
         </div>
-        <div class="score ${state.total < 0 ? "negative" : ""}">${state.total > 0 ? "+" : ""}${state.total}</div>
+
+        <div class="score ${state.total < 0 ? "negative" : ""}">
+          ${state.total > 0 ? "+" : ""}${state.total}
+        </div>
+
         <div class="player-meta">
           <span>${status}</span>
           <span><strong>R ${Math.max(0, 3 - state.rospisUsed)}/3</strong></span>
@@ -221,32 +348,64 @@ function renderGame() {
 
 function renderHistory() {
   if (!game.rounds.length) {
-    $("history").innerHTML = '<div class="empty-history">Здесь появятся очки сыгранных раундов</div>';
+    $("history").innerHTML =
+      '<div class="empty-history">Здесь появятся очки сыгранных раундов</div>';
     return;
   }
+
   const { roundMarks } = calculateGameState();
+
   $("history").innerHTML = `
     <div class="history-list">
       ${game.rounds.map((round, reverseIndex) => {
         const index = game.rounds.length - 1 - reverseIndex;
         const actualRound = game.rounds[index];
         const dealerIndex = getDealerIndex(actualRound, index);
+
         return `
           <article class="history-card">
             <div class="history-title">Раунд ${index + 1}</div>
+
             ${actualRound.entries.map((entry, i) => {
-              const special = entry.type === "R" ? " · R" :
-                entry.type === "peach" ? " · 🍑" :
-                entry.threeNines ? " · 3 девятки" : "";
+              const special = entry.type === "R"
+                ? " · R"
+                : entry.type === "peach"
+                  ? " · 🍑"
+                  : entry.threeNines
+                    ? " · 3 девятки"
+                    : "";
+
               const mark = roundMarks[index][i];
+
+              // Если очки не засчитаны из-за бочки, показываем 0.
+              const scoreNotRecorded =
+                mark.includes("🛢️") &&
+                !mark.includes("вход") &&
+                !mark.includes("пропуск");
+
+              const shownScore = scoreNotRecorded ? 0 : entry.score;
+
               return `
                 <div class="history-row">
                   <span class="history-player">
-                    ${i === dealerIndex ? '<span class="history-dealer-dot" title="Игрок на прикупе"></span>' : ""}
+                    ${i === dealerIndex
+                      ? '<span class="history-dealer-dot" title="Игрок на прикупе"></span>'
+                      : ""}
                     ${escapeText(game.players[i])}${special}
-                    ${mark ? `<span class="history-special-mark">${mark}</span>` : ""}
+                    ${mark
+                      ? `<span class="history-special-mark">${mark}</span>`
+                      : ""}
                   </span>
-                  <span class="${entry.score < 0 ? "negative-text" : entry.score > 0 ? "positive" : ""}">${entry.score > 0 ? "+" : ""}${entry.score}</span>
+
+                  <span class="${
+                    shownScore < 0
+                      ? "negative-text"
+                      : shownScore > 0
+                        ? "positive"
+                        : ""
+                  }">
+                    ${shownScore > 0 ? "+" : ""}${shownScore}
+                  </span>
                 </div>
               `;
             }).join("")}
@@ -259,6 +418,7 @@ function renderHistory() {
 
 function openRound() {
   if (calculateGameState().states.some(state => state.winner)) return;
+
   editingLastRound = false;
   draft = [];
   currentPlayer = 0;
@@ -267,6 +427,7 @@ function openRound() {
 
 function editLastRound() {
   if (!game || !game.rounds.length) return;
+
   editingLastRound = true;
   draft = [];
   currentPlayer = 0;
@@ -274,33 +435,62 @@ function editLastRound() {
 }
 
 function openPlayerModal() {
-  const oldEntry = editingLastRound ? game.rounds[game.rounds.length - 1].entries[currentPlayer] : null;
+  const oldEntry = editingLastRound
+    ? game.rounds[game.rounds.length - 1].entries[currentPlayer]
+    : null;
+
   const oldBase = oldEntry && Number.isFinite(oldEntry.baseScore)
     ? oldEntry.baseScore
-    : oldEntry && oldEntry.threeNines ? oldEntry.score + 120
-    : oldEntry && oldEntry.type === "number" ? oldEntry.score : 0;
-  rawInput = oldEntry && oldEntry.type === "number" ? String(oldBase) : "";
+    : oldEntry && oldEntry.threeNines
+      ? oldEntry.score + 120
+      : oldEntry && oldEntry.type === "number"
+        ? oldEntry.score
+        : 0;
+
+  rawInput = oldEntry && oldEntry.type === "number"
+    ? String(oldBase)
+    : "";
+
   threeNines = Boolean(oldEntry && oldEntry.threeNines);
 
   $("modal").hidden = false;
   $("modalError").textContent = "";
+
   const name = game.players[currentPlayer];
-  const roundNumber = editingLastRound ? game.rounds.length : game.rounds.length + 1;
-  $("modalSubtitle").textContent = `${editingLastRound ? "ИЗМЕНЕНИЕ · " : ""}РАУНД ${roundNumber} · ИГРОК ${currentPlayer + 1} ИЗ ${game.players.length}`;
+
+  const roundNumber = editingLastRound
+    ? game.rounds.length
+    : game.rounds.length + 1;
+
+  $("modalSubtitle").textContent =
+    `${editingLastRound ? "ИЗМЕНЕНИЕ · " : ""}РАУНД ${roundNumber} · ИГРОК ${currentPlayer + 1} ИЗ ${game.players.length}`;
+
   $("modalTitle").textContent = name;
+
   $("turnProgress").innerHTML = game.players.map((_, i) =>
-    `<div class="turn-step ${i < currentPlayer ? "done" : i === currentPlayer ? "current" : ""}"></div>`
+    `<div class="turn-step ${
+      i < currentPlayer
+        ? "done"
+        : i === currentPlayer
+          ? "current"
+          : ""
+    }"></div>`
   ).join("");
 
   renderRButtons();
   updateDisplay();
   updateThreeNinesButton();
-  $("confirmBtn").textContent = currentPlayer === game.players.length - 1 ? "Завершить раунд ✓" : "Следующий игрок →";
+
+  $("confirmBtn").textContent =
+    currentPlayer === game.players.length - 1
+      ? "Завершить раунд ✓"
+      : "Следующий игрок →";
 }
 
 function renderRButtons() {
   const used = getRUsed(currentPlayer);
   const remaining = Math.max(0, 3 - used);
+
   $("rospisButtons").innerHTML = `
     <button class="rospis-btn" data-rospis ${remaining === 0 ? "disabled" : ""}>
       Роспись · осталось ${remaining}
@@ -310,26 +500,40 @@ function renderRButtons() {
 
 function updateThreeNinesButton() {
   const button = $("threeNinesBtn");
+
   button.classList.toggle("selected", threeNines);
   button.setAttribute("aria-pressed", String(threeNines));
 }
 
 function updateDisplay() {
   $("rawScore").textContent = rawInput || "0";
-  const value = rawInput === "" || rawInput === "-" ? 0 : Number(rawInput);
+
+  const value =
+    rawInput === "" || rawInput === "-"
+      ? 0
+      : Number(rawInput);
+
   const rounded = roundScore(value);
   const finalScore = rounded - (threeNines ? 120 : 0);
-  $("roundedHint").textContent = `Будет записано: ${finalScore > 0 ? "+" : ""}${finalScore}${threeNines ? " (штраф −120)" : ""}`;
+
+  $("roundedHint").textContent =
+    `Будет записано: ${finalScore > 0 ? "+" : ""}${finalScore}${threeNines ? " (штраф −120)" : ""}`;
 }
 
 function addKey(key) {
   $("modalError").textContent = "";
-  if (key === "backspace") rawInput = rawInput.slice(0, -1);
-  else if (key === "minus") rawInput = rawInput.startsWith("-") ? rawInput.slice(1) : "-" + rawInput;
-  else {
+
+  if (key === "backspace") {
+    rawInput = rawInput.slice(0, -1);
+  } else if (key === "minus") {
+    rawInput = rawInput.startsWith("-")
+      ? rawInput.slice(1)
+      : "-" + rawInput;
+  } else {
     if (rawInput.replace("-", "").length >= 7) return;
     rawInput += key;
   }
+
   updateDisplay();
 }
 
@@ -340,13 +544,25 @@ $("keypad").addEventListener("click", event => {
 
 $("rospisButtons").addEventListener("click", event => {
   const button = event.target.closest("[data-rospis]");
+
   if (!button || button.disabled) return;
-  draft.push({ playerIndex: currentPlayer, score: 0, type: "R" });
+
+  draft.push({
+    playerIndex: currentPlayer,
+    score: 0,
+    type: "R"
+  });
+
   nextPlayer();
 });
 
 $("peachBtn").addEventListener("click", () => {
-  draft.push({ playerIndex: currentPlayer, score: 0, type: "peach" });
+  draft.push({
+    playerIndex: currentPlayer,
+    score: 0,
+    type: "peach"
+  });
+
   nextPlayer();
 });
 
@@ -358,14 +574,20 @@ $("threeNinesBtn").addEventListener("click", () => {
 
 function confirmScore() {
   if (rawInput === "-") {
-    $("modalError").textContent = "Введи число после знака минус.";
+    $("modalError").textContent =
+      "Введи число после знака минус.";
     return;
   }
-  const baseScore = roundScore(rawInput === "" ? 0 : Number(rawInput));
+
+  const baseScore = roundScore(
+    rawInput === "" ? 0 : Number(rawInput)
+  );
+
   if (!Number.isFinite(baseScore)) {
     $("modalError").textContent = "Некорректное число.";
     return;
   }
+
   draft.push({
     playerIndex: currentPlayer,
     score: baseScore - (threeNines ? 120 : 0),
@@ -373,26 +595,36 @@ function confirmScore() {
     threeNines,
     type: "number"
   });
+
   nextPlayer();
 }
 
 function nextPlayer() {
   currentPlayer++;
+
   if (currentPlayer < game.players.length) {
     openPlayerModal();
     return;
   }
 
   const entries = Array(game.players.length);
+
   for (const entry of draft) {
     entries[entry.playerIndex] = {
       score: entry.score,
       type: entry.type,
-      ...(entry.type === "number" ? { baseScore: entry.baseScore, threeNines: entry.threeNines } : {})
+      ...(entry.type === "number"
+        ? {
+            baseScore: entry.baseScore,
+            threeNines: entry.threeNines
+          }
+        : {})
     };
   }
+
   if (entries.some(entry => !entry)) {
-    $("modalError").textContent = "Не все игроки заполнили раунд.";
+    $("modalError").textContent =
+      "Не все игроки заполнили раунд.";
     return;
   }
 
@@ -401,18 +633,32 @@ function nextPlayer() {
     editingLastRound = false;
   } else {
     const count = game.players.length;
+
     const previousDealer = game.rounds.length
-      ? getDealerIndex(game.rounds[game.rounds.length - 1], game.rounds.length - 1)
+      ? getDealerIndex(
+          game.rounds[game.rounds.length - 1],
+          game.rounds.length - 1
+        )
       : count - 1;
-    const dealerIndex = (previousDealer + 1) % count; // по часовой стрелке
-    game.rounds.push({ entries, dealerIndex });
+
+    const dealerIndex = (previousDealer + 1) % count;
+
+    game.rounds.push({
+      entries,
+      dealerIndex
+    });
   }
+
   saveGame();
   renderGame();
 }
 
 function cancelModal() {
-  if (draft.length && !confirm("Отменить ввод? Незавершённый раунд не будет сохранён.")) return;
+  if (
+    draft.length &&
+    !confirm("Отменить ввод? Незавершённый раунд не будет сохранён.")
+  ) return;
+
   draft = [];
   editingLastRound = false;
   $("modal").hidden = true;
@@ -426,12 +672,20 @@ $("cancelBtn").addEventListener("click", cancelModal);
 $("undoBtn").addEventListener("click", editLastRound);
 
 $("newGameBtn").addEventListener("click", () => {
-  if (!confirm("Начать новую партию? Текущая партия будет заменена.")) return;
+  if (!confirm("Начать новую партию? Текущая партия будет заменена.")) {
+    return;
+  }
+
   game = null;
   draft = [];
   editingLastRound = false;
-  try { localStorage.removeItem(STORAGE_KEY); }
-  catch (error) { console.warn("Не удалось очистить сохранение", error); }
+
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    console.warn("Не удалось очистить сохранение", error);
+  }
+
   $("playerCount").value = "3";
   showSetup();
 });
@@ -440,23 +694,64 @@ function restoreGame() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return false;
+
     const parsed = JSON.parse(saved);
-    if (!parsed || !Array.isArray(parsed.players) || !Array.isArray(parsed.rounds) ||
+
+    if (
+      !parsed ||
+      !Array.isArray(parsed.players) ||
+      !Array.isArray(parsed.rounds) ||
       ![3, 4].includes(parsed.players.length) ||
-      parsed.players.some(name => typeof name !== "string" || name.length < 1 || name.length > 15) ||
-      parsed.rounds.some(round => !round || !Array.isArray(round.entries) ||
+      parsed.players.some(name =>
+        typeof name !== "string" ||
+        name.length < 1 ||
+        name.length > 15
+      ) ||
+      parsed.rounds.some(round =>
+        !round ||
+        !Array.isArray(round.entries) ||
         round.entries.length !== parsed.players.length ||
-        (round.dealerIndex !== undefined && (!Number.isInteger(round.dealerIndex) || round.dealerIndex < 0 || round.dealerIndex >= parsed.players.length)) ||
-        round.entries.some(entry => !entry || !Number.isFinite(entry.score) ||
+        (
+          round.dealerIndex !== undefined &&
+          (
+            !Number.isInteger(round.dealerIndex) ||
+            round.dealerIndex < 0 ||
+            round.dealerIndex >= parsed.players.length
+          )
+        ) ||
+        round.entries.some(entry =>
+          !entry ||
+          !Number.isFinite(entry.score) ||
           !["number", "R", "peach"].includes(entry.type) ||
-          (entry.baseScore !== undefined && !Number.isFinite(entry.baseScore)) ||
-          (entry.threeNines !== undefined && typeof entry.threeNines !== "boolean") ||
-          (entry.type === "R" && entry.rIndex !== undefined && ![1, 2, 3].includes(entry.rIndex))))
-    ) return false;
+          (
+            entry.baseScore !== undefined &&
+            !Number.isFinite(entry.baseScore)
+          ) ||
+          (
+            entry.threeNines !== undefined &&
+            typeof entry.threeNines !== "boolean"
+          ) ||
+          (
+            entry.type === "R" &&
+            entry.rIndex !== undefined &&
+            ![1, 2, 3].includes(entry.rIndex)
+          )
+        )
+      )
+    ) {
+      return false;
+    }
+
     game = parsed;
     return true;
-  } catch (error) { return false; }
+
+  } catch (error) {
+    return false;
+  }
 }
 
-if (restoreGame()) renderGame();
-else renderNameFields();
+if (restoreGame()) {
+  renderGame();
+} else {
+  renderNameFields();
+}
