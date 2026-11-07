@@ -117,7 +117,7 @@ function calculateGameState(rounds = game.rounds) {
 
         state.total = 880;
         state.barrel = { attempt, rounds: 0 };
-        marks[i] = `🛢️ ${attempt} · вход`;
+        marks[i] = `Бочка ${attempt} · вход`;
 
         const entrant = entrants.find(x => x.index === i);
 
@@ -138,7 +138,7 @@ function calculateGameState(rounds = game.rounds) {
             marks[i] = "🏆 Победа · 1000";
           } else {
             state.barrel.rounds = 1;
-            marks[i] = `🛢️ ${attempt} · 1/3`;
+            marks[i] = `Бочка ${attempt} · 1/3`;
           }
         }
 
@@ -147,7 +147,7 @@ function calculateGameState(rounds = game.rounds) {
 
       if (state.barrel) {
         if (dealer) {
-          marks[i] = `🛢️ ${state.barrel.attempt} · пропуск`;
+          marks[i] = `Бочка ${state.barrel.attempt} · пропуск`;
           continue;
         }
 
@@ -176,7 +176,7 @@ function calculateGameState(rounds = game.rounds) {
           if (state.barrel.rounds >= 3) {
             fallFromBarrel(state, marks, i, "3 бочки");
           } else {
-            marks[i] = `🛢️ ${state.barrel.attempt} · ${state.barrel.rounds}/3`;
+            marks[i] = `Бочка ${state.barrel.attempt} · ${state.barrel.rounds}/3`;
           }
         }
 
@@ -195,7 +195,7 @@ function calculateGameState(rounds = game.rounds) {
           rounds: 0
         };
 
-        marks[i] = `🛢️ ${state.barrel.attempt} · вход`;
+        marks[i] = `Бочка ${state.barrel.attempt} · вход`;
       }
     }
   });
@@ -306,15 +306,15 @@ function renderGame() {
     const isDealer = i === nextDealer;
 
     const barrelText = state.barrel
-      ? `${"🛢️".repeat(Math.min(state.barrel.attempt, 3))} · ${state.barrel.rounds}/3`
+      ? `${"Бочка".repeat(Math.min(state.barrel.attempt, 3))} · ${state.barrel.rounds}/3`
       : state.barrelFailures
-        ? `${"🛢️".repeat(Math.min(state.barrelFailures, 3))} · сходов: ${state.barrelFailures}`
+        ? `${"Бочка".repeat(Math.min(state.barrelFailures, 3))} · сходов: ${state.barrelFailures}`
         : "в игре";
 
     const status = state.winner
       ? "🏆 Победитель"
       : isDealer
-        ? "🔴 На прикупе"
+        ? "На прикупе"
         : barrelText;
 
     return `
@@ -370,7 +370,7 @@ function renderHistory() {
               const special = entry.type === "R"
                 ? " · R"
                 : entry.type === "peach"
-                  ? " · 🍑"
+                  ? " · Ж"
                   : entry.threeNines
                     ? " · 3 девятки"
                     : "";
